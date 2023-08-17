@@ -5,6 +5,7 @@ import "net"
 import "os"
 import "net/rpc"
 import "net/http"
+import "fmt"
 
 
 type Coordinator struct {
@@ -38,7 +39,7 @@ func (c *Coordinator) server() {
 	if e != nil {
 		log.Fatal("listen error:", e)
 	}
-	go http.Serve(l, nil)
+	go http.Serve(l, nil)					// 启动服务端
 }
 
 //
@@ -61,10 +62,13 @@ func (c *Coordinator) Done() bool {
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
+	for _, file := range files {
+		fmt.Println(file)
+	}
+	// TODO:
+	// 1 初始化任务队列 以及任务队列锁
+	// 2 响应worker的请求
 
-	// Your code here.
-
-
-	c.server()
+	// c.server()
 	return &c
 }

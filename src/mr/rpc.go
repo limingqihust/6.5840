@@ -14,6 +14,19 @@ import "strconv"
 // and reply for an RPC.
 //
 
+// worker向coordinator发送请求的类型
+const (
+	REQUEST_ASK_TASK = 0		// worker向coordinator请求任务
+	REQUEST_FINISH_TASK = 1	  	// worker通知coordinator任务完成
+)
+
+// coordinator的任务类型
+const (
+	TASK_FREE = 0
+	TASK_MAP = 1
+	TASK_REDUCE = 2
+)
+
 type ExampleArgs struct {
 	X int
 }
@@ -22,6 +35,12 @@ type ExampleReply struct {
 	Y int
 }
 
+type SocketArgs struct {	
+	Type int 				// 请求类型
+	Filenames []string		// 该worker需要负责的文件名数组
+	WorkerID int
+	
+}
 // Add your RPC definitions here.
 
 

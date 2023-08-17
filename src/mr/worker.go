@@ -34,7 +34,10 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	CallExample()
+	// TODO:
+	// 1 向coordinator发送请求任务报文
+	// 2 执行任务
 
 }
 
@@ -75,13 +78,12 @@ func CallExample() {
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
-	c, err := rpc.DialHTTP("unix", sockname)
+	c, err := rpc.DialHTTP("unix", sockname)					// 建立连接
 	if err != nil {
 		log.Fatal("dialing:", err)
 	}
 	defer c.Close()
-
-	err = c.Call(rpcname, args, reply)
+	err = c.Call(rpcname, args, reply)							// 向coordinator发送请求并等待响应
 	if err == nil {
 		return true
 	}
