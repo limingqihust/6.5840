@@ -8,6 +8,7 @@ import "net/http"
 import "fmt"
 import "sync"
 import "time"
+
 var mutex sync.Mutex
 
 // coordinator state
@@ -46,7 +47,7 @@ func (c *Coordinator) InitTask(files []string) {
 	mutex.Lock()
 	defer mutex.Unlock()
 
-	fmt.Println("[Coordinator] init task begin")
+	log.Println("[Coordinator] init task begin")
 	task_id := 0
 	// init map tasks
 	for i, filename := range files {
@@ -66,7 +67,7 @@ func (c *Coordinator) InitTask(files []string) {
 		}
 		task_id += 1
 	}
-	fmt.Println("[Coordinator] init task done, map task", len(c.MapTasks), ", reduce task", len(c.ReduceTasks))
+	log.Println("[Coordinator] init task done, map task", len(c.MapTasks), ", reduce task", len(c.ReduceTasks))
 }
 
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
@@ -85,11 +86,11 @@ func (c *Coordinator) AskMapTask(reply *TaskArgs) bool {
 			reply.ReduceNum = c.ReduceNum
 			c.MapTasks[i].Type = TASK_MAPPING
 			c.MapTasks[i].StartTime = time.Now().Unix()
-			fmt.Println("[Coordinator] coordinator return a map task, TaskId :",map_task.TaskId)
+			log.Println("[Coordinator] coordinator return a map task, TaskId :",map_task.TaskId)
 			return true
 		} 
 	}
-	fmt.Println("[Coordinator] coordinator notify worker wait")
+	log.Println("[Coordinator] coordinator notify worker wait")
 	return false
 }
 
@@ -104,11 +105,11 @@ func (c *Coordinator) AskReduceTask(reply *TaskArgs) bool {
 			reply.MapNum = c.MapNum
 			c.ReduceTasks[i].Type = TASK_REDUCING
 			c.ReduceTasks[i].StartTime = time.Now().Unix()
-			fmt.Println("[Coordinator] coordinator return a reduce task, TaskId :",reduce_task.TaskId)
+			log.Println("[Coordinator] coordinator return a reduce task, TaskId :",reduce_task.TaskId)
 			return true
 		} 
 	}
-	fmt.Println("[Coordinator] coordinator notify worker wait")
+	log.Println("[Coordinator] coordinator notify worker wait")
 	return false
 }
 
@@ -139,7 +140,7 @@ func (c *Coordinator) PromotePhase() {
 				return 
 			}
 		}
-		fmt.Println("[Coordinator] Map done, begin to Reduce")
+		log.Println("[Coordinator] Map done, begin to Reduce")
 		c.Phase = PHASE_REDUCE
 	} else if c.Phase == PHASE_REDUCE {
 		for _, reduce_task := range c.ReduceTasks {
@@ -147,7 +148,7 @@ func (c *Coordinator) PromotePhase() {
 				return 
 			}
 		}
-		fmt.Println("[Coordinator] Reduce done, Finish")
+		log.Println("[Coordinator] Reduce done, Finish")
 		c.Phase = PHASE_FINISH
 	} 
 }
@@ -158,7 +159,7 @@ func (c *Coordinator) DoMapTaskDone(reply *TaskArgs, _ *TaskArgs) error {
 	defer mutex.Unlock()
 	task_id := reply.TaskId
 	c.MapTasks[task_id].Type = TASK_FINISH
-	fmt.Println("[Coordinator] map task",task_id, "done")
+	log.Println("[Coordinator] map task",task_id, "done")
 	c.PromotePhase()
 	return nil
 }
@@ -170,7 +171,7 @@ func (c *Coordinator) DoReduceTaskDone(task *TaskArgs, _ *TaskArgs) error {
 	task_id := task.TaskId
 	c.ReduceTasks[task_id].Type = TASK_FINISH
 	c.PromotePhase()
-	fmt.Println("[Coordinator] reduce task",task_id, "done")
+	log.Println("[Coordinator] reduce task",task_id, "done")
 	return nil
 }
 
@@ -181,14 +182,16 @@ func (c *Coordinator) CheckCrash() {
 	cur_time := time.Now().Unix()
 	if c.Phase == PHASE_MAP {
 		for i,map_task := range c.MapTasks {
-			if cur_time - map_task.StartTime > 20 {
+			if map_task.Type == TASK_MAPPING && cur_time - map_task.StartTime > 10 {
 				c.MapTasks[i].Type = TASK_FREE
+				log.Println("[Coordinator] map task",map_task.TaskId, "crash")
 			}
 		}
 	} else {
 		for i,reduce_task := range c.ReduceTasks {
-			if cur_time - reduce_task.StartTime > 20 {
+			if reduce_task.Type == TASK_REDUCING && cur_time - reduce_task.StartTime > 20 {
 				c.ReduceTasks[i].Type = TASK_FREE
+				log.Println("[Coordinator] reduce task",reduce_task.TaskId, "crash")
 			}
 		}
 	}
@@ -218,10 +221,7 @@ func (c *Coordinator) server() {
 func (c *Coordinator) Done() bool {
 	mutex.Lock()
 	defer mutex.Unlock()
-	if c.Phase == PHASE_FINISH {
-		return true
-	}
-	return false
+	return c.Phase == PHASE_FINISH
 }
 
 //
@@ -230,6 +230,14 @@ func (c *Coordinator) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeCoordinator(files []string, nReduce int) *Coordinator {
+	log_file, err := os.OpenFile("coordinator.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Println("open log file failed")
+		os.Exit(-1)
+	}
+	defer log_file.Close()
+	log.SetOutput(log_file)
+
 	c := Coordinator {
 		MapTasks     		: make([]Task, len(files)),
 		ReduceTasks			: make([]Task, nReduce),
@@ -239,14 +247,15 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	}
 	c.InitTask(files)
 	c.server()
-	// for {
-	// 	mutex.Lock()
-	// 	if c.Phase == PHASE_FINISH {		// all task done
-	// 		mutex.Unlock()
-	// 		break
-	// 	}
-	// 	c.CheckCrash()						// check whether has worker crash
-	// 	mutex.Unlock()
-	// }
+	for {
+		mutex.Lock()
+		if c.Phase == PHASE_FINISH {		// all task done
+			mutex.Unlock()
+			break
+		}
+		c.CheckCrash()						// check whether has worker crash
+		mutex.Unlock()
+		time.Sleep(10 * time.Second)
+	}
 	return &c
 }

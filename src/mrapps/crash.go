@@ -16,12 +16,13 @@ import "os"
 import "sort"
 import "strconv"
 import "time"
-
+import "fmt"
 func maybeCrash() {
 	max := big.NewInt(1000)
 	rr, _ := crand.Int(crand.Reader, max)
 	if rr.Int64() < 330 {
 		// crash!
+		fmt.Println("crash: worker", os.Getpid())
 		os.Exit(1)
 	} else if rr.Int64() < 660 {
 		// delay for a while.

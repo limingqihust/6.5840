@@ -40,6 +40,14 @@ func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 // 3 send reply to coordinator to notify 
 //
 func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
+	log_file, err := os.OpenFile("worker.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Println("open log file failed")
+		os.Exit(-1)
+	}
+	defer log_file.Close()
+	log.SetOutput(log_file)
+
 	for {
 		request := TaskArgs{}
 		reply := TaskArgs{}
@@ -49,15 +57,20 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		}
 		switch reply.Type {
 			case WORKER_MAP : 			// receive a map task
+				log.Println("[Worker] receive map task, task id :", reply.TaskId)
 				DoMapTask(mapf, reply)
 				DoMapTaskDone(reply)
+				log.Println("[Worker] map task done, task id :", reply.TaskId)
 			case WORKER_REDUCE :
+				log.Println("[Worker] receive reduce task, task id :", reply.TaskId)
 				DoReduceTask(reducef, reply)
 				DoReduceTaskDone(reply)
+				log.Println("[Worker] reduce task done, task id :", reply.TaskId)
 			case WORKER_WAIT : 			// coordinator has no available tasks, wait
+				log.Println("[Worker] no available task, wait")
 				time.Sleep(time.Second)
 			default :
-				fmt.Printf("[Worker] receive undefined task type")
+				fmt.Println("[Worker] receive undefined task type")
 				os.Exit(1)
 		}
 	}
@@ -68,10 +81,9 @@ func AskTask(request *TaskArgs, reply *TaskArgs) {
 	request.Type = WORKER_REQUEST
 	ok := call("Coordinator.AskTask", request, reply)
 	if !ok {
-		fmt.Println("call failed!\n")
+		fmt.Println("call failed!")
 		os.Exit(-1)
 	}
-	fmt.Println("[Worker] request a task successfully, Task.Type :", reply.Type, "Task.FileName :", reply.FileName, "TaskId :", reply.TaskId)
 }
 
 // worker do map task
@@ -83,12 +95,12 @@ func DoMapTask(mapf func(string, string) []KeyValue, task TaskArgs) {
 	filename := task.FileName
 	file, err := os.Open(filename)
 	if err != nil {
-		fmt.Println("cannot open %v", filename)
+		fmt.Println("cannot open", filename)
 		os.Exit(-1)
 	}
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
-		fmt.Println("cannot read %v", filename)
+		fmt.Println("cannot read", filename)
 		os.Exit(-1)
 	}
 	file.Close()
@@ -125,6 +137,7 @@ func DoMapTaskDone(task TaskArgs) {
 	ok := call("Coordinator.DoMapTaskDone",&task_done_reply, nil)
 	if !ok {
 		fmt.Println("call failed")
+		os.Exit(-1)
 	}
 }
 
@@ -137,7 +150,7 @@ func DoReduceTask(reducef func(string, []string) string, task TaskArgs) {
 		tmp_filename := "mr-tmp-" + fmt.Sprintf("%d", task_id) + "-" + fmt.Sprintf("%d", i)
 		tmp_file, err := os.Open(tmp_filename)
 		if err != nil {
-			fmt.Println("cannot open %v", tmp_filename)
+			fmt.Println("cannot open", tmp_filename)
 			os.Exit(-1)
 		}
 		dec := json.NewDecoder(tmp_file)
@@ -150,25 +163,37 @@ func DoReduceTask(reducef func(string, []string) string, task TaskArgs) {
 		}
 		tmp_file.Close()
 	}
+	log.Println("[Worker] DoReduceTask : reduce read intermediate done, task id : ", task_id, ", intermediate size : ", len(intermediate))
+
+
 	// 2 do reduce task, write result to mr-out-X
 	sort.Sort(ByKey(intermediate))
 	oname := "mr-out-" + fmt.Sprintf("%d", task_id)
-	ofile,_ := os.Create(oname)
+	ofile,err := os.Create(oname)
+	if err!=nil {
+		fmt.Println("cannot create", oname)
+		os.Exit(-1)
+	}
+	log.Println("[Worker] DoReduceTask : create file :", oname, "task id :", task_id)
 	i := 0
 	for i < len(intermediate) {
 		j := i + 1
 		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
 			j++
 		}
+		log.Println("[Worker] DoReduceTask : i :",i,", j :",j)
 		values := []string{}
 		for k := i; k < j; k++ {
 			values = append(values, intermediate[k].Value)
 		}
+		log.Println("[Worker] DoReduceTask : begin reducef, i am",os.Getpid())
 		output := reducef(intermediate[i].Key, values)
 		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
+		log.Println("[Worker] DoReduceTask : task_id : ", task_id, ", key : ", intermediate[i].Key, ", value : ", output)
 		i = j
 	}
 	ofile.Close()
+	log.Println("[Worker] DoReduceTask done, task id : ", task_id)
 }
 
 func DoReduceTaskDone(task TaskArgs) {
@@ -178,6 +203,7 @@ func DoReduceTaskDone(task TaskArgs) {
 	ok := call("Coordinator.DoReduceTaskDone",&task_done_reply, nil)
 	if !ok {
 		fmt.Println("call failed")
+		os.Exit(-1)
 	}
 }
 //
