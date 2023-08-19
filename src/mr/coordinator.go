@@ -117,6 +117,7 @@ func (c *Coordinator) AskReduceTask(reply *TaskArgs) bool {
 func (c *Coordinator) AskTask(request *TaskArgs, reply *TaskArgs) error {
 	mutex.Lock()
 	defer mutex.Unlock()
+	log.Println("[Coordinator] receive ask task request")
 	switch c.Phase {
 		case PHASE_MAP :						// try to find a map task
 			if !c.AskMapTask(reply) {			
@@ -189,7 +190,7 @@ func (c *Coordinator) CheckCrash() {
 		}
 	} else {
 		for i,reduce_task := range c.ReduceTasks {
-			if reduce_task.Type == TASK_REDUCING && cur_time - reduce_task.StartTime > 20 {
+			if reduce_task.Type == TASK_REDUCING && cur_time - reduce_task.StartTime > 10 {
 				c.ReduceTasks[i].Type = TASK_FREE
 				log.Println("[Coordinator] reduce task",reduce_task.TaskId, "crash")
 			}
@@ -255,7 +256,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 		}
 		c.CheckCrash()						// check whether has worker crash
 		mutex.Unlock()
-		time.Sleep(10 * time.Second)
+		time.Sleep(20 * time.Second)
 	}
 	return &c
 }

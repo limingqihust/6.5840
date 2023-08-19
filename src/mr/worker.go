@@ -51,16 +51,15 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 	for {
 		request := TaskArgs{}
 		reply := TaskArgs{}
+		log.Println("[Worker] begin ask task, i am",os.Getpid())
 		AskTask(&request, &reply)		// ask a task to coordinator
 		if reply.Type == WORKER_EXIT {
 			break
 		}
 		switch reply.Type {
 			case WORKER_MAP : 			// receive a map task
-				log.Println("[Worker] receive map task, task id :", reply.TaskId)
 				DoMapTask(mapf, reply)
 				DoMapTaskDone(reply)
-				log.Println("[Worker] map task done, task id :", reply.TaskId)
 			case WORKER_REDUCE :
 				log.Println("[Worker] receive reduce task, task id :", reply.TaskId)
 				DoReduceTask(reducef, reply)
@@ -68,7 +67,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				log.Println("[Worker] reduce task done, task id :", reply.TaskId)
 			case WORKER_WAIT : 			// coordinator has no available tasks, wait
 				log.Println("[Worker] no available task, wait")
-				time.Sleep(time.Second)
+				time.Sleep(5*time.Second)
 			default :
 				fmt.Println("[Worker] receive undefined task type")
 				os.Exit(1)
@@ -163,8 +162,6 @@ func DoReduceTask(reducef func(string, []string) string, task TaskArgs) {
 		}
 		tmp_file.Close()
 	}
-	log.Println("[Worker] DoReduceTask : reduce read intermediate done, task id : ", task_id, ", intermediate size : ", len(intermediate))
-
 
 	// 2 do reduce task, write result to mr-out-X
 	sort.Sort(ByKey(intermediate))
@@ -174,22 +171,19 @@ func DoReduceTask(reducef func(string, []string) string, task TaskArgs) {
 		fmt.Println("cannot create", oname)
 		os.Exit(-1)
 	}
-	log.Println("[Worker] DoReduceTask : create file :", oname, "task id :", task_id)
 	i := 0
 	for i < len(intermediate) {
 		j := i + 1
 		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
 			j++
 		}
-		log.Println("[Worker] DoReduceTask : i :",i,", j :",j)
 		values := []string{}
 		for k := i; k < j; k++ {
 			values = append(values, intermediate[k].Value)
 		}
-		log.Println("[Worker] DoReduceTask : begin reducef, i am",os.Getpid())
+		log.Println("[Worker] DoReduceTask : begin reducef, i am",os.Getpid(), ", task id :", task_id)
 		output := reducef(intermediate[i].Key, values)
 		fmt.Fprintf(ofile, "%v %v\n", intermediate[i].Key, output)
-		log.Println("[Worker] DoReduceTask : task_id : ", task_id, ", key : ", intermediate[i].Key, ", value : ", output)
 		i = j
 	}
 	ofile.Close()
